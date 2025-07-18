@@ -1,0 +1,5 @@
+[2025-07-17 15:06:52] [DEBUG] [main.py:6] - This is a debug message.
+[2025-07-17 15:06:52] [INFO] [main.py:7] - This is an info message.
+[2025-07-17 15:06:52] [WARNING] [main.py:8] - This is a warning.
+[2025-07-17 15:06:52] [ERROR] [main.py:9] - This is an error.
+[2025-07-17 15:06:52] [CRITICAL] [main.py:10] - This is critical!

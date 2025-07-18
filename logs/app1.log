@@ -1,0 +1,5 @@
+[2025-07-17 15:09:25] [DEBUG] [utils_tests.py:8] - This is a debug message.
+[2025-07-17 15:09:25] [INFO] [utils_tests.py:9] - This is an info message.
+[2025-07-17 15:09:25] [WARNING] [utils_tests.py:10] - This is a warning.
+[2025-07-17 15:09:25] [ERROR] [utils_tests.py:11] - This is an error.
+[2025-07-17 15:09:25] [CRITICAL] [utils_tests.py:12] - This is critical!
