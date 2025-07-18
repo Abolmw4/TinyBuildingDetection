@@ -1,5 +1,6 @@
 import logging
 import os
+import torch.nn as nn
 
 def setup_logger(name='my_logger', log_file='/home/my_proj/logs/app.log', level=logging.DEBUG):
     # Create custom logger
@@ -26,3 +27,13 @@ def setup_logger(name='my_logger', log_file='/home/my_proj/logs/app.log', level=
         logger.addHandler(file_handler)
 
     return logger
+
+def count_parameters(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters())
+
+def count_trainable_parameters(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def count_layer_wise_parameters(model: nn.Module) -> None:
+    for name, param in model.named_parameters():
+        print(f"{name:30} | {param.numel():7} params | requires_grad={param.requires_grad}")

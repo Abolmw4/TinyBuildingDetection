@@ -5,9 +5,6 @@ import torch.nn.functional as F
 import math
 from typing import Callable
 
-# def conv(in_channels: int, out_channels: int, kernel_size: int, bias: bool=True) -> nn.Conv2d:
-#     return nn.Conv2d(in_channels, out_channels, kernel_size, padding=(kernel_size//2), bias=bias)
-
 def conv(**kwargs) -> nn.Conv2d:
     return nn.Conv2d(in_channels=kwargs.get('in_channels'), out_channels=kwargs.get('out_channels'), kernel_size=kwargs.get('kernel_size'), padding=(kwargs.get('kernel_size')//2), bias=kwargs.get('bias', True))
 
@@ -85,7 +82,6 @@ class Decoder(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-
 class EDSR(nn.Module):
     def __init__(self, num_channels: int=3, input_channel: int=64, scale_factor: int=4, width: int=64, number_resblock: int=16, kernel_size: int=3) -> None:
         super().__init__()
@@ -100,7 +96,6 @@ class EDSR(nn.Module):
         res += x
         x = self.tail(res)
         return x
-
 
 class SuperResolution(nn.Module):
     def __init__(self, num_channel: int, c1: int, c2: int, scale_factor: int) -> None:
@@ -117,7 +112,7 @@ class SuperResolution(nn.Module):
         self.scale_factor = scale_factor
 
     def forward(self, low_level_feature: torch.tensor, high_level_feature: torch.tensor) -> Tensor:
-        x_sr= self.decoder(high_level_feature, low_level_feature, self.factor)
+        x_sr= self.decoder(high_level_feature, low_level_feature, self.scale_factor)
         x_sr_up = self.edsr(x_sr)
         return x_sr_up
 
