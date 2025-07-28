@@ -37,3 +37,12 @@ def count_trainable_parameters(model: nn.Module) -> int:
 def count_layer_wise_parameters(model: nn.Module) -> None:
     for name, param in model.named_parameters():
         print(f"{name:30} | {param.numel():7} params | requires_grad={param.requires_grad}")
+
+def active_trainable_params(model):
+    for param in model.parameters():
+        param.requires_grad = True  # Enable gradients for training
+
+def deactive_trainable_params(model):
+    for param in model.parameters():
+        param.requires_grad = True  # Enable gradients for training
+

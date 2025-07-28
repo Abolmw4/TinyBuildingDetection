@@ -1,37 +1,13 @@
-import sys
 import torch
 import torch.nn as nn
 from torch import Tensor
 from tinynetwork.supreres import SuperResolution
 from ultralytics import YOLO
-from typing import List
-import torch.functional as F
+from utils.util import active_trainable_params
+from typing import Tuple
 
-YOLO_MODEL = YOLO("yolo12n.pt").model.model
-
-
-class Concat(nn.Module):
-    # Concatenate a list of tensors along dimension
-    def __init__(self, dimension=1):
-        super(Concat, self).__init__()
-        self.d = dimension
-
-    def forward(self, x):
-        try:
-            out = torch.cat(x, self.d)
-            return out
-        except Exception as error:
-            print(f"error '{error}'")
-            print(f"tensor1: {x[0].shape} | tensor2: {x[-1].shape}")
-            b0, c0, w0, h0 = x[0].shape
-            b1, c1, w1, h1 = x[-1].shape
-            if w0 == w1 and h0 != h1:
-                pad = torch.rand(b0, c0, w0, h0 - h1)
-                x[-1] = torch.cat((x[-1], pad), dim=3)
-            elif w0 != w1 and h0 != h1:
-                x[-1] = F.interpolate(x[-1], size=(w0, h0), mode='bilinear', align_corners=False)
-            out = torch.cat(x, self.d)
-            return out
+YOLO_MODEL = YOLO("/home/my_proj/weights/pretrained_models/yolo12n.pt").model.model
+active_trainable_params(YOLO_MODEL)
 
 class BackBone(nn.Module):
     def __init__(self):
@@ -45,6 +21,7 @@ class BackBone(nn.Module):
         self.l6 = YOLO_MODEL[6]
         self.l7 = YOLO_MODEL[7]
         self.l8 = YOLO_MODEL[8]
+
     def forward(self, x):
         p1 = self.l0(x)
         p2 = self.l1(p1)
@@ -55,7 +32,7 @@ class BackBone(nn.Module):
         p4 = self.l6(p4)
         p5 = self.l7(p4)
         p5 = self.l8(p5)
-        return p3, p4, p5
+        return p2, p3, p4, p5
 
 class Head(nn.Module):
     def __init__(self):
@@ -73,6 +50,37 @@ class Head(nn.Module):
         self.l19 = YOLO_MODEL[19]
         self.l20 = YOLO_MODEL[20]
         self.l21 = YOLO_MODEL[21]
+        for idx, module in enumerate(self.l21.cv3):
+            for jdx, block in enumerate(module):
+                if jdx == 2:
+                    block.out_channels = 1
+        # for idx, module in enumerate(self.l21.cv3):
+        #     for jdx, block in enumerate(module):
+        #         if jdx == 2:
+        #             block.in_channels = 18
+        #             block.out_channels = 18
+        #             break
+        #         for kdx, layers in enumerate(block):
+        #             if idx == 0 and jdx == 0 and kdx == 0:
+        #                 continue
+        #             elif idx == 0 and jdx == 0 and kdx == 1:
+        #                 layers.conv.out_channels = 18
+        #                 layers.bn.num_features = 18
+        #             else:
+        #                 layers.conv.in_channels = 18
+        #                 layers.conv.out_channels = 18
+        #                 layers.bn.num_features = 18
+
+
+        # for item in self.l21.cv3:
+        #     for idx, layer in enumerate(item):
+        #         if idx == 2:
+        #             break
+        #         for idx, l in enumerate(layer):
+        #             if idx == 1:
+        #                 l.conv.out_channels = 1
+        #                 l.bn.num_features=1
+
     def forward(self, p3, p4, p5):
         u1 = self.l9(p5)
         c1 = self.l10((u1, p4))
@@ -89,28 +97,21 @@ class Head(nn.Module):
         d = self.l21([h2, h4, h6])
         return d
 
-
-
 class SuperYoloo(nn.Module):
-    def __init__(self, yolo_model_src: str) -> None:
+    def __init__(self, tr_model: bool=True):
         super().__init__()
-        yolo_model = YOLO(yolo_model_src).model.model
-        self.backbone = yolo_model[:9]
-        self.neck = yolo_model[9:21]
-        self.head = yolo_model[21]
-        self.super_res = SuperResolution(num_channel=3, c1=64, c2=256, scale_factor=2)
-        self.storage_layer_output: List[Tensor] = []
+        self.tr_mode = tr_model
+        self.back_bone = BackBone()
+        self.super = SuperResolution(num_channel=3, c1=64, c2=128, scale_factor=2)
+        self.head = Head()
 
-    def forward(self, x: Tensor) -> Tensor:
-        for i, layer in enumerate(self.backbone):
-            try:
-                x = layer(x)
-                if i == 2 or i == 7 or i == 8:
-                    self.storage_layer_output.append(x)
-            except Exception as error:
-                print(i, f"error: {error}")
-        output_res = self.super_res(self.storage_layer_output[1], self.storage_layer_output[0])
-        output_neck = self.neck(self.storage_layer_output[-1])
-        output = self.head(output_neck)
-        return self.storage_layer_output, output
-
+    def forward(self, input: Tensor) -> Tuple[Tensor, Tensor]:
+        if self.tr_mode:
+            p2, p3, p4, p5 = self.back_bone(input)
+            output = self.head(p3, p4, p5)
+            super_output = self.super(p3, p2)
+            return output, super_output
+        else:
+            p2, p3, p4, p5 = self.back_bone(input)
+            output = self.head(p3, p4, p5)
+            return output

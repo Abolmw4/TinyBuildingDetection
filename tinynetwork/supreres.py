@@ -66,7 +66,7 @@ class Decoder(nn.Module):
         high_level_feature = self.conv2(high_level_feature)
         high_level_feature = self.relu(high_level_feature)
         high_level_feature = F.interpolate(high_level_feature, size=[i*(scaler_factor//2) for i in low_level_feature.size()[2:]], mode='bilinear', align_corners=True)
-        if scaler_factor>1:
+        if scaler_factor > 1:
             low_level_feature = F.interpolate(low_level_feature, size=[i*(scaler_factor//2) for i in low_level_feature.size()[2:]], mode='bilinear', align_corners=True)
         high_level_feature = torch.cat((high_level_feature, low_level_feature), dim=1)
         high_level_feature = self.last_conv(high_level_feature)
