@@ -290,5 +290,10 @@ class MyTestCase(unittest.TestCase):
         # model.train()  # Set back to training mode
         # # Continue training from saved epoch
 
+
+    def test_yolo12_yaml(self):
+        from ultralytics import YOLO
+
+        model = YOLO('yolo12n.yaml')  # Loads the YOLOv12-small model architecture
 if __name__ == '__main__':
     unittest.main()
