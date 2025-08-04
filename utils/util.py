@@ -48,8 +48,6 @@ def deactive_trainable_params(model):
     for param in model.parameters():
         param.requires_grad = True  # Enable gradients for training
 
-
-
 def reshape_output(y, num_anchors=8, num_bins=4):
     batch, _, H, W = y.shape
     y = y.view(batch, num_anchors, -1, H, W)

@@ -100,33 +100,48 @@ def dfl_loss(box_pred, box_target, num_bins=4):
 
 
 def box_loss(box_pred, box_target, H, W, stride):
-    # Convert predictions to boxes
-    grid_x, grid_y = torch.meshgrid(torch.arange(W), torch.arange(H))
+    batch, num_anchors, _, _, _ = box_pred.shape
+    num_bins = 4  # Since 16 channels = 4 distances * 4 bins
+
+    # Correct reshape: split 16 into (4, 4)
+    box_pred_reshaped = box_pred.view(batch, num_anchors, 4, num_bins, H, W)
+
+    # Create grid for centers
+    grid_x, grid_y = torch.meshgrid(
+        torch.arange(W, device=box_pred.device),
+        torch.arange(H, device=box_pred.device),
+        indexing='xy'
+    )
     center_x = (grid_x.unsqueeze(0).unsqueeze(0) + 0.5) * stride / (W * stride)
     center_y = (grid_y.unsqueeze(0).unsqueeze(0) + 0.5) * stride / (H * stride)
 
-    # Compute l, t, r, b from DFL
-    bin_probs = F.softmax(box_pred.view(*box_pred.shape[:3], 4, H, W), dim=3)
-    coord_vals = (bin_probs * torch.arange(4, device=box_pred.device).view(1, 1, 1, 4, 1, 1)).sum(dim=3)
+    # Compute expected coordinates from DFL
+    bin_probs = F.softmax(box_pred_reshaped, dim=3)  # Softmax over bins
+    bin_indices = torch.arange(num_bins, device=box_pred.device).view(1, 1, 1, num_bins, 1, 1)
+    coord_vals = (bin_probs * bin_indices).sum(dim=3)  # Shape: [batch, num_anchors, 4, H, W]
+
+    # Split into l, t, r, b
     l_pred, t_pred, r_pred, b_pred = coord_vals.chunk(4, dim=2)
 
-    # Predicted boxes (normalized)
+    # Compute normalized box coordinates
     left_pred = center_x - l_pred.squeeze(2) / W
     top_pred = center_y - t_pred.squeeze(2) / H
     right_pred = center_x + r_pred.squeeze(2) / W
     bottom_pred = center_y + b_pred.squeeze(2) / H
     pred_boxes = torch.stack([left_pred, top_pred, right_pred, bottom_pred], dim=2)
 
-    # GT boxes (from distances)
+    # Convert GT distances to box coordinates
     l_gt, t_gt, r_gt, b_gt = box_target.chunk(4, dim=2)
-    left_gt = center_x - l_gt / W
-    top_gt = center_y - t_gt / H
-    right_gt = center_x + r_gt / W
-    bottom_gt = center_y + b_gt / H
+    left_gt = center_x - l_gt.squeeze(2) / W
+    top_gt = center_y - t_gt.squeeze(2) / H
+    right_gt = center_x + r_gt.squeeze(2) / W
+    bottom_gt = center_y + b_gt.squeeze(2) / H
     gt_boxes = torch.stack([left_gt, top_gt, right_gt, bottom_gt], dim=2)
 
+    # Compute losses
     ciou = ciou_loss(pred_boxes, gt_boxes)
-    dfl = dfl_loss(box_pred.view(*box_pred.shape[:3], 4, H, W), box_target)
+    dfl = dfl_loss(box_pred_reshaped, box_target, num_bins=num_bins)
+
     return ciou.mean() + dfl.mean()
 
 
@@ -148,5 +163,3 @@ def total_loss(outputs, targets, img_size=640):
         total_box += box_loss(box_pred, box_t, H, W, stride)
 
     return total_obj + total_cls + total_box
-
-

@@ -15,7 +15,7 @@ class MyTestCase(unittest.TestCase):
             batch, _, h, w = item.shape
             box_pred, obj_pred, cls_pred = reshape_output(item)
             obj_target, cls_target, box_target = build_targets(targets=targets, H=h, W=w)
-            loss_obj += obj_loss(obj_pred=obj_pred, obj_target=obj_pred)
+            loss_obj += obj_loss(obj_pred=obj_pred, obj_target=obj_target)
             print(loss_obj)
 
     def test_cls_loss(self):
@@ -34,21 +34,26 @@ class MyTestCase(unittest.TestCase):
             loss_cls += cls_loss(cls_pred=cls_pred, cls_target=cls_target, obj_target=obj_target)
             print(loss_cls)
 
-    def test_dfl_loss(self):
-        from tinyloss.lossfunctions import dfl_loss
+    def test_totla_loss(self):
+        from tinyloss.lossfunctions import obj_loss, cls_loss, box_loss
         import torch
-        from utils.util import build_targets, reshape_output, dfl_loss
+        from utils.util import build_targets, reshape_output
         import random
 
         targets = [[random.random() for _ in range(5)]]
-        one_sample = [torch.rand(1, 144, 80, 80), torch.rand(1, 144, 40, 40), torch.rand(1, 144, 20, 20)]
-        loss_dfl = 0
-        for item in one_sample:
+        output = [torch.rand(1, 144, 80, 80), torch.rand(1, 144, 40, 40), torch.rand(1, 144, 20, 20)]
+        obj_ls, cls_ls, box_ls = 0, 0, 0
+        for item, stride in zip(output, [8, 16, 32]):
             batch, _, h, w = item.shape
             box_pred, obj_pred, cls_pred = reshape_output(item)
             obj_target, cls_target, box_target = build_targets(targets=targets, H=h, W=w)
-            loss_dfl += dfl_loss()
-            print(loss_dfl)
+
+            obj_ls += obj_loss(obj_pred, obj_target)
+            cls_ls += cls_loss(cls_pred, cls_target, obj_target)
+            box_ls += box_loss(box_pred, box_target, h, w, stride)
+
+        print(obj_ls + cls_ls + box_ls)
+
 
 if __name__ == '__main__':
     unittest.main()
