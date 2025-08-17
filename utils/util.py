@@ -2,6 +2,7 @@ import logging
 import os
 import torch.nn as nn
 import torch
+import numpy as np
 import torch.nn.functional as F
 
 def setup_logger(name='my_logger', log_file='/home/my_proj/logs/app.log', level=logging.DEBUG):
@@ -86,3 +87,31 @@ def build_targets(targets, H, W, num_anchors=8):
             box_target[b, :, 3, j, i] = b_dist
 
     return obj_target, cls_target, box_target
+
+
+def read_lables_file(lbl: str) -> np.ndarray:
+    data = []
+    # Read file using with open()
+    with open(lbl, 'r') as file:
+        for line in file:
+            # Split each line into individual string values
+            str_values = line.split()
+
+            # Convert string values to floats
+            float_values = [float(x) for x in str_values]
+
+            # Append to data list
+            data.append(float_values)
+
+    # Convert to NumPy array
+    arr = np.array(data)
+    return arr
+
+def xyxy2xywh(x):
+    # Convert nx4 boxes from [x1, y1, x2, y2] to [x, y, w, h] where xy1=top-left, xy2=bottom-right
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[:, 0] = (x[:, 0] + x[:, 2]) / 2  # x center
+    y[:, 1] = (x[:, 1] + x[:, 3]) / 2  # y center
+    y[:, 2] = x[:, 2] - x[:, 0]  # width
+    y[:, 3] = x[:, 3] - x[:, 1]  # height
+    return y
