@@ -115,4 +115,3 @@ class SuperResolution(nn.Module):
         x_sr= self.decoder(high_level_feature, low_level_feature, self.scale_factor)
         x_sr_up = self.edsr(x_sr)
         return x_sr_up
-
