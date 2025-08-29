@@ -12,10 +12,108 @@ def reshape_output(y, num_anchors=8, num_bins=4):
     return box_pred, obj_pred, cls_pred
 
 
+# def build_targets(targets, H, W, num_anchors=8):
+#     # Get the actual batch size from targets
+#     if targets.numel() == 0:  # Handle empty targets
+#         batch_size = 1  # Or whatever default you prefer
+#     else:
+#         batch_size = int(targets[:, 0].max().item()) + 1
+#
+#     device = targets.device
+#
+#     obj_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
+#     cls_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
+#     box_target = torch.zeros(batch_size, num_anchors, 4, H, W, device=device)
+#
+#     # If there are no targets, return empty tensors
+#     if targets.numel() == 0:
+#         return obj_target, cls_target, box_target
+#
+#     # Process each target in the tensor
+#     for target in targets:
+#         b = int(target[0].item())
+#         if b >= batch_size:
+#             continue
+#
+#         class_id, cx, cy, w, h = target[1:6]
+#         i = min(int(cx * W), W - 1)
+#         j = min(int(cy * H), H - 1)
+#
+#         # Update targets for the specific anchor cell
+#         obj_target[b, :, j, i] = 1.0
+#         cls_target[b, :, j, i] = class_id
+#
+#         # Calculate box distances
+#         center_x = (i + 0.5) / W
+#         center_y = (j + 0.5) / H
+#         l_dist = (center_x - (cx - w / 2)) * W
+#         t_dist = (center_y - (cy - h / 2)) * H
+#         r_dist = ((cx + w / 2) - center_x) * W
+#         b_dist = ((cy + h / 2) - center_y) * H
+#
+#         box_target[b, :, 0, j, i] = l_dist
+#         box_target[b, :, 1, j, i] = t_dist
+#         box_target[b, :, 2, j, i] = r_dist
+#         box_target[b, :, 3, j, i] = b_dist
+#
+#     return obj_target, cls_target, box_target
 
-def build_targets(targets, H, W, num_anchors=8, batch_size=4):
+
+#
+# def build_targets(targets, H, W, num_anchors=8, batch_size=4):
+#     device = targets.device
+#     batch_size = min(batch_size, int(targets[:, 0].max().item()) + 1)
+#
+#     obj_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
+#     cls_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
+#     box_target = torch.zeros(batch_size, num_anchors, 4, H, W, device=device)
+#
+#     # Process each target in the tensor
+#     for target in targets:
+#         b = int(target[0].item())
+#         if b >= batch_size:
+#             continue
+#
+#         class_id, cx, cy, w, h = target[1:6]
+#         i = min(int(cx * W), W - 1)
+#         j = min(int(cy * H), H - 1)
+#
+#         # Update targets for the specific anchor cell
+#         obj_target[b, :, j, i] = 1.0
+#         cls_target[b, :, j, i] = class_id
+#
+#         # Calculate box distances
+#         center_x = (i + 0.5) / W
+#         center_y = (j + 0.5) / H
+#         l_dist = (center_x - (cx - w / 2)) * W
+#         t_dist = (center_y - (cy - h / 2)) * H
+#         r_dist = ((cx + w / 2) - center_x) * W
+#         b_dist = ((cy + h / 2) - center_y) * H
+#
+#         box_target[b, :, 0, j, i] = l_dist
+#         box_target[b, :, 1, j, i] = t_dist
+#         box_target[b, :, 2, j, i] = r_dist
+#         box_target[b, :, 3, j, i] = b_dist
+#
+#     return obj_target, cls_target, box_target
+#
+
+
+def build_targets(targets, H, W, num_anchors=8, batch_size=None):
+    if targets.numel() == 0:  # Handle empty targets
+        if batch_size is None:
+            batch_size = 1
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        obj_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
+        cls_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
+        box_target = torch.zeros(batch_size, num_anchors, 4, H, W, device=device)
+        return obj_target, cls_target, box_target
+
+    # Get the actual batch size from targets if not provided
+    if batch_size is None:
+        batch_size = int(targets[:, 0].max().item()) + 1
+
     device = targets.device
-    batch_size = min(batch_size, int(targets[:, 0].max().item()) + 1)
 
     obj_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
     cls_target = torch.zeros(batch_size, num_anchors, H, W, device=device)
@@ -49,6 +147,7 @@ def build_targets(targets, H, W, num_anchors=8, batch_size=4):
         box_target[b, :, 3, j, i] = b_dist
 
     return obj_target, cls_target, box_target
+
 
 
 def obj_loss(obj_pred, obj_target):

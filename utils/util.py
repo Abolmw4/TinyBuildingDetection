@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import torch.nn as nn
@@ -52,44 +53,13 @@ def deactive_trainable_params(model):
     for param in model.parameters():
         param.requires_grad = True  # Enable gradients for training
 
-# def reshape_output(y, num_anchors=8, num_bins=4):
-#     batch, _, H, W = y.shape
-#     y = y.view(batch, num_anchors, -1, H, W)
-#     box_pred = y[:, :, :4 * num_bins, :, :]      # (batch, 8, 16, H, W)
-#     obj_pred = y[:, :, 4 * num_bins:4 * num_bins + 1, :, :]  # (batch, 8, 1, H, W)
-#     cls_pred = y[:, :, 4 * num_bins + 1:, :, :]  # (batch, 8, 1, H, W)
-#     return box_pred, obj_pred, cls_pred
+def load_json(json_dir: str="/home/my_proj/conf/config.json"):
+    with open(json_dir, mode='r') as jsfile:
+        config = json.load(jsfile)
+    return config
 
-# def build_targets(targets, H, W, num_anchors=8):
-#     batch_size = len(targets)
-#     obj_target = torch.zeros(batch_size, num_anchors, H, W)
-#     cls_target = torch.zeros(batch_size, num_anchors, H, W)
-#     box_target = torch.zeros(batch_size, num_anchors, 4, H, W)
-#
-#     for b in range(batch_size):
-#         for class_id, cx, cy, w, h in [targets[b][1:]]:
-#             # class_id, cx, cy, w, h = obj
-#             # Calculate grid cell index
-#             i = min(int(cx * W), W - 1)
-#             j = min(int(cy * H), H - 1)
-#
-#             # Mark all anchors in this cell as positive
-#             obj_target[b, :, j, i] = 1.0
-#             cls_target[b, :, j, i] = 1.0
-#
-#             # Calculate box distances
-#             center_x = (i + 0.5) / W
-#             center_y = (j + 0.5) / H
-#             l_dist = (center_x - (cx - w / 2)) * W
-#             t_dist = (center_y - (cy - h / 2)) * H
-#             r_dist = ((cx + w / 2) - center_x) * W
-#             b_dist = ((cy + h / 2) - center_y) * H
-#             box_target[b, :, 0, j, i] = l_dist
-#             box_target[b, :, 1, j, i] = t_dist
-#             box_target[b, :, 2, j, i] = r_dist
-#             box_target[b, :, 3, j, i] = b_dist
-#
-#     return obj_target, cls_target, box_target
+def check_device(device: str) -> str:
+    return "cuda" if (device == "cuda" or device == "CUDA") and torch.cuda.is_available() else "cpu"
 
 def read_lables_file(lbl: str) -> np.ndarray:
     data = []
@@ -118,27 +88,104 @@ def xyxy2xywh(x):
     y[:, 3] = x[:, 3] - x[:, 1]  # height
     return y
 
-def train_tinynet(model, device: str="cuda", data_loader=None, number_of_epoch: int=10):
-    dev = "cuda" if device == "cuda" and torch.cuda.is_available() else "cpu"
 
-    net = model.to(dev)
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.01)
-    net.train()
+def train_tinynet(model, data_loader=None, optimizer=None, dev="cuda"):
     down_factor = 2
-    for epoch in range(number_of_epoch):
-        obj_ls, cls_ls, box_ls = 0, 0, 0
-        optimizer.zero_grad()
-        for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
-            image = imgs.to(device, non_blocking=True) / 255.0
-            imgs=F.interpolate(image,size=[i//down_factor for i in image.size()[2:]], mode='bilinear', align_corners=True)
-            with amp.autocast(device_type="cuda"):
-                pred, output_sr = net(imgs)  # forward #zjq
-                for item, stride in zip(pred, [8, 16, 32]):
-                    batch, _, h, w = item.shape
-                    box_pred, obj_pred, cls_pred = reshape_output(item)
-                    obj_target, cls_target, box_target = build_targets(targets=targets, H=h, W=w)
+    total_ls, obj_ls, cls_ls, box_ls, sr_ls = 0, 0, 0, 0, 0
+    for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
+        # Get the actual batch size
+        batch_size = imgs.size(0)
 
-                    obj_ls += obj_loss(obj_pred.to(dev), obj_target.to(dev))
-                    cls_ls += cls_loss(cls_pred.to(dev), cls_target.to(dev), obj_target.to(dev))
-                    box_ls += box_loss(box_pred.to(dev), box_target.to(dev), h, w, stride)
-                
+        # Move data to device
+        image = imgs.to(dev, non_blocking=True) / 255.0
+        imgs = F.interpolate(image, size=[i // down_factor for i in image.size()[2:]], mode='bilinear', align_corners=True)
+
+        optimizer.zero_grad()
+        pred, output_sr = model(imgs)
+
+        # Initialize batch losses
+        batch_obj_loss = 0
+        batch_cls_loss = 0
+        batch_box_loss = 0
+        sr_loss = 0
+        for item, stride in zip(pred, [8, 16, 32]):
+            batch, _, h, w = item.shape
+            box_pred, obj_pred, cls_pred = reshape_output(item)
+
+            # Pass the actual batch size to build_targets
+            obj_target, cls_target, box_target = build_targets(
+                targets=targets, H=h, W=w, batch_size=batch_size
+            )
+
+            # Move targets to device
+            obj_target = obj_target.to(dev, non_blocking=True)
+            cls_target = cls_target.to(dev, non_blocking=True)
+            box_target = box_target.to(dev, non_blocking=True)
+
+            # Calculate losses
+            batch_obj_loss += obj_loss(obj_pred, obj_target)
+            batch_cls_loss += cls_loss(cls_pred, cls_target, obj_target)
+            batch_box_loss += box_loss(box_pred, box_target, h, w, stride)
+
+        sr_loss += 0.1*torch.nn.L1Loss(reduction='mean')(output_sr, image)
+
+        # Combine losses and backpropagate
+        total_batch_loss = batch_obj_loss + batch_cls_loss + batch_box_loss + sr_loss
+        total_batch_loss.backward()
+        optimizer.step()
+
+        # Accumulate detached losses for logging
+        total_ls += total_batch_loss.detach().item()
+        obj_ls += batch_obj_loss.detach().item()
+        cls_ls += batch_cls_loss.detach().item()
+        box_ls += batch_box_loss.detach().item()
+        sr_ls += sr_loss.detach().item()
+
+        # Clear intermediate variables
+        del pred, output_sr, box_pred, obj_pred, cls_pred
+        torch.cuda.empty_cache()
+    return total_ls, obj_ls, cls_ls, box_ls, sr_ls
+
+
+def validation_tinynet(model, device: str="cuda", data_loader=None):
+
+    model.eval()
+    down_factor = 2
+    with torch.no_grad():
+        for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
+            # Get the actual batch size
+            batch_size = imgs.size(0)
+
+            # Move data to device
+            image = imgs.to(device, non_blocking=True) / 255.0
+            imgs = F.interpolate(image, size=[i // down_factor for i in image.size()[2:]], mode='bilinear',
+                                     align_corners=True)
+
+            pred, output_sr = model(imgs)
+
+            # Initialize batch losses
+            batch_obj_loss_val = 0
+            batch_cls_loss_val = 0
+            batch_box_loss_val = 0
+            sr_loss_val = 0
+            for item, stride in zip(pred, [8, 16, 32]):
+                batch, _, h, w = item.shape
+                box_pred, obj_pred, cls_pred = reshape_output(item)
+
+                # Pass the actual batch size to build_targets
+                obj_target, cls_target, box_target = build_targets(
+                        targets=targets, H=h, W=w, batch_size=batch_size
+                    )
+
+                # Move targets to device
+                obj_target = obj_target.to(device, non_blocking=True)
+                cls_target = cls_target.to(device, non_blocking=True)
+                box_target = box_target.to(device, non_blocking=True)
+
+                # Calculate losses
+                batch_obj_loss_val += obj_loss(obj_pred, obj_target)
+                batch_cls_loss_val += cls_loss(cls_pred, cls_target, obj_target)
+                batch_box_loss_val += box_loss(box_pred, box_target, h, w, stride)
+
+            sr_loss_val += 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
+

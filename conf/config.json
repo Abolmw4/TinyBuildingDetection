@@ -1,0 +1,12 @@
+{
+  "number_of_epoch": 15,
+  "batch_size": 2,
+  "optimizer": "Adam",
+  "device": "cuda",
+  "dataset_dir": "/home/my_proj/dataset/Dr_dataset",
+  "number_of_workers": 1,
+  "image_size": 1024,
+  "world_size": 1,
+  "log_file": "/home/my_proj/logs",
+  "learning_rate": 0.001
+}
