@@ -147,45 +147,262 @@ def train_tinynet(model, data_loader=None, optimizer=None, dev="cuda"):
     return total_ls, obj_ls, cls_ls, box_ls, sr_ls
 
 
-def validation_tinynet(model, device: str="cuda", data_loader=None):
+import torch
+import torch.nn.functional as F
+from tqdm import tqdm
 
+
+def validation_tinynet(model, device: str = "cuda", data_loader=None):
     model.eval()
     down_factor = 2
+
+    # Initialize accumulators
+    total_obj_loss = 0.0
+    total_cls_loss = 0.0
+    total_box_loss = 0.0
+    total_sr_loss = 0.0
+    num_batches = 0
+
     with torch.no_grad():
         for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
-            # Get the actual batch size
             batch_size = imgs.size(0)
-
-            # Move data to device
             image = imgs.to(device, non_blocking=True) / 255.0
-            imgs = F.interpolate(image, size=[i // down_factor for i in image.size()[2:]], mode='bilinear',
-                                     align_corners=True)
+            imgs = F.interpolate(
+                image,
+                size=[i // down_factor for i in image.size()[2:]],
+                mode='bilinear',
+                align_corners=True
+            )
 
             pred, output_sr = model(imgs)
 
-            # Initialize batch losses
             batch_obj_loss_val = 0
             batch_cls_loss_val = 0
             batch_box_loss_val = 0
-            sr_loss_val = 0
-            for item, stride in zip(pred, [8, 16, 32]):
+
+            for item, stride in zip(pred[1], [8, 16, 32]):
+                if len(item.shape) == 3:
+                    item = item.unsqueeze(0)
+
                 batch, _, h, w = item.shape
                 box_pred, obj_pred, cls_pred = reshape_output(item)
 
-                # Pass the actual batch size to build_targets
                 obj_target, cls_target, box_target = build_targets(
-                        targets=targets, H=h, W=w, batch_size=batch_size
-                    )
+                    targets=targets, H=h, W=w, batch_size=batch_size
+                )
 
-                # Move targets to device
                 obj_target = obj_target.to(device, non_blocking=True)
                 cls_target = cls_target.to(device, non_blocking=True)
                 box_target = box_target.to(device, non_blocking=True)
 
-                # Calculate losses
                 batch_obj_loss_val += obj_loss(obj_pred, obj_target)
                 batch_cls_loss_val += cls_loss(cls_pred, cls_target, obj_target)
                 batch_box_loss_val += box_loss(box_pred, box_target, h, w, stride)
 
-            sr_loss_val += 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
+            sr_loss_val = 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
+
+            # Accumulate losses
+            total_obj_loss += batch_obj_loss_val.item()
+            total_cls_loss += batch_cls_loss_val.item()
+            total_box_loss += batch_box_loss_val.item()
+            total_sr_loss += sr_loss_val.item()
+            num_batches += 1
+
+    # Compute average losses
+    avg_obj_loss = total_obj_loss / num_batches
+    avg_cls_loss = total_cls_loss / num_batches
+    avg_box_loss = total_box_loss / num_batches
+    avg_sr_loss = total_sr_loss / num_batches
+
+    return avg_obj_loss, avg_cls_loss, avg_box_loss, avg_sr_loss
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#
+# def validation_tinynet(model, device: str = "cuda", data_loader=None):
+#     model.eval()
+#     down_factor = 2
+#     with torch.no_grad():
+#         for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
+#             # Get the actual batch size
+#             batch_size = imgs.size(0)
+#
+#             # Move data to device
+#             image = imgs.to(device, non_blocking=True) / 255.0
+#             imgs = F.interpolate(image, size=[i // down_factor for i in image.size()[2:]], mode='bilinear',
+#                                  align_corners=True)
+#
+#             pred, output_sr = model(imgs)
+#
+#             # Initialize batch losses
+#             batch_obj_loss_val = 0
+#             batch_cls_loss_val = 0
+#             batch_box_loss_val = 0
+#             sr_loss_val = 0
+#
+#             for item, stride in zip(pred[1], [8, 16, 32]):
+#                 # Ensure we have the correct number of dimensions
+#                 if len(item.shape) == 3:
+#                     # Add a batch dimension if missing
+#                     item = item.unsqueeze(0)
+#
+#                 # Now safely unpack
+#                 batch, _, h, w = item.shape
+#
+#                 box_pred, obj_pred, cls_pred = reshape_output(item)
+#
+#                 # Pass the actual batch size to build_targets
+#                 obj_target, cls_target, box_target = build_targets(
+#                     targets=targets, H=h, W=w, batch_size=batch_size
+#                 )
+#
+#                 # Move targets to device
+#                 obj_target = obj_target.to(device, non_blocking=True)
+#                 cls_target = cls_target.to(device, non_blocking=True)
+#                 box_target = box_target.to(device, non_blocking=True)
+#
+#                 # Calculate losses
+#                 batch_obj_loss_val += obj_loss(obj_pred, obj_target)
+#                 batch_cls_loss_val += cls_loss(cls_pred, cls_target, obj_target)
+#                 batch_box_loss_val += box_loss(box_pred, box_target, h, w, stride)
+#
+#             sr_loss_val += 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
+#
+#
+#
+#
+#
+
+
+
+
+
+
+
+
+
+# def validation_tinynet(model, device: str="cuda", data_loader=None):
+#
+#     model.eval()
+#     down_factor = 2
+#     with torch.no_grad():
+#         for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
+#             # Get the actual batch size
+#             batch_size = imgs.size(0)
+#
+#             # Move data to device
+#             image = imgs.to(device, non_blocking=True) / 255.0
+#             imgs = F.interpolate(image, size=[i // down_factor for i in image.size()[2:]], mode='bilinear',
+#                                      align_corners=True)
+#
+#             pred, output_sr = model(imgs)
+#
+#             # Initialize batch losses
+#             batch_obj_loss_val = 0
+#             batch_cls_loss_val = 0
+#             batch_box_loss_val = 0
+#             sr_loss_val = 0
+#             for item, stride in zip(pred, [8, 16, 32]):
+#                 batch, _, h, w = item.shape
+#                 box_pred, obj_pred, cls_pred = reshape_output(item)
+#
+#                 # Pass the actual batch size to build_targets
+#                 obj_target, cls_target, box_target = build_targets(
+#                         targets=targets, H=h, W=w, batch_size=batch_size
+#                     )
+#
+#                 # Move targets to device
+#                 obj_target = obj_target.to(device, non_blocking=True)
+#                 cls_target = cls_target.to(device, non_blocking=True)
+#                 box_target = box_target.to(device, non_blocking=True)
+#
+#                 # Calculate losses
+#                 batch_obj_loss_val += obj_loss(obj_pred, obj_target)
+#                 batch_cls_loss_val += cls_loss(cls_pred, cls_target, obj_target)
+#                 batch_box_loss_val += box_loss(box_pred, box_target, h, w, stride)
+#
+#             sr_loss_val += 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
 
