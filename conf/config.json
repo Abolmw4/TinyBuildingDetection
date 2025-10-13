@@ -8,5 +8,6 @@
   "image_size": 1024,
   "world_size": 1,
   "log_file": "/home/my_proj/logs",
-  "learning_rate": 0.001
+  "learning_rate": 0.001,
+  "weights": "/home/my_proj/weights"
 }

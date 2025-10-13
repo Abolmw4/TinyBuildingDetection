@@ -8,6 +8,8 @@ from tqdm import tqdm
 import torch.nn.functional as F
 from torch import amp
 from tinyloss.lossfunctions import *
+from typing import Tuple, Any
+from torch.optim import Adam, SGD
 
 def setup_logger(name='my_logger', log_file='/home/my_proj/logs/app.log', level=logging.DEBUG):
     # Create custom logger
@@ -34,6 +36,40 @@ def setup_logger(name='my_logger', log_file='/home/my_proj/logs/app.log', level=
         logger.addHandler(file_handler)
 
     return logger
+
+def save_model(epoch: int, model, optimizer, total_loss: float, src_dir: str) -> bool:
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'total_train_loss': total_loss}
+    try:
+        torch.save(checkpoint, os.path.join(src_dir, f'checkpoint{epoch}.pth'))
+        return True
+    except (OSError, IOError) as error:
+        print(f"File system error when saving model '{error}'")
+        return False
+    except RuntimeError as error:
+        print(f"Runtime error while saving model '{error}'")
+        return False
+    except Exception as error:
+        print(f"Unexpected error while saving model: {error}")
+        return False
+
+def load_model(model_checkpoint: str, model: Any, optimizer: torch.optim) -> tuple[Any, torch.optim, int, float] | None:
+    if isinstance(model_checkpoint, str) and model_checkpoint.endswith('.pth'):
+        try:
+            checkpoint = torch.load(model_checkpoint)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            epoch = checkpoint['epoch']
+            loss = checkpoint['total_train_loss']
+            return model, optimizer, epoch, loss
+        except RuntimeError as error:
+            print(f"when loading model error '{error}' occured.")
+            return None
+    else:
+        raise ValueError("'model_checkpoint' is not valid file")
 
 def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
@@ -88,12 +124,70 @@ def xyxy2xywh(x):
     y[:, 3] = x[:, 3] - x[:, 1]  # height
     return y
 
+# def train_tinynet(model, data_loader=None, optimizer=None, dev="cuda"):
+#     down_factor = 2
+#     total_ls, obj_ls, cls_ls, box_ls, sr_ls = 0, 0, 0, 0, 0
+#     for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
+#         # Get the actual batch size
+#         batch_size = imgs.size(0)
+#
+#         # Move data to device
+#         image = imgs.to(dev, non_blocking=True) / 255.0
+#         imgs = F.interpolate(image, size=[i // down_factor for i in image.size()[2:]], mode='bilinear', align_corners=True)
+#
+#         optimizer.zero_grad()
+#         pred, output_sr = model(imgs)
+#
+#         # Initialize batch losses
+#         batch_obj_loss = 0
+#         batch_cls_loss = 0
+#         batch_box_loss = 0
+#         sr_loss = 0
+#         for item, stride in zip(pred, [8, 16, 32]):
+#             batch, _, h, w = item.shape
+#             box_pred, obj_pred, cls_pred = reshape_output(item)
+#
+#             # Pass the actual batch size to build_targets
+#             obj_target, cls_target, box_target = build_targets(
+#                 targets=targets, H=h, W=w, batch_size=batch_size
+#             )
+#
+#             # Move targets to device
+#             obj_target = obj_target.to(dev, non_blocking=True)
+#             cls_target = cls_target.to(dev, non_blocking=True)
+#             box_target = box_target.to(dev, non_blocking=True)
+#
+#             # Calculate losses
+#             batch_obj_loss += obj_loss(obj_pred, obj_target)
+#             batch_cls_loss += cls_loss(cls_pred, cls_target, obj_target)
+#             batch_box_loss += box_loss(box_pred, box_target, h, w, stride)
+#
+#         sr_loss += 0.1*torch.nn.L1Loss(reduction='mean')(output_sr, image)
+#
+#         # Combine losses and backpropagate
+#         total_batch_loss = batch_obj_loss + batch_cls_loss + batch_box_loss + sr_loss
+#         total_batch_loss.backward()
+#         optimizer.step()
+#
+#         # Accumulate detached losses for logging
+#         total_ls += total_batch_loss.detach().item()
+#         obj_ls += batch_obj_loss.detach().item()
+#         cls_ls += batch_cls_loss.detach().item()
+#         box_ls += batch_box_loss.detach().item()
+#         sr_ls += sr_loss.detach().item()
+#
+#         # Clear intermediate variables
+#         del pred, output_sr, box_pred, obj_pred, cls_pred
+#         torch.cuda.empty_cache()
+#     return total_ls, obj_ls, cls_ls, box_ls, sr_ls
 
 def train_tinynet(model, data_loader=None, optimizer=None, dev="cuda"):
     down_factor = 2
     total_ls, obj_ls, cls_ls, box_ls, sr_ls = 0, 0, 0, 0, 0
+
+    num_batches = len(data_loader)  # total number of batches
+
     for i, (imgs, targets, path, _) in enumerate(tqdm(data_loader)):
-        # Get the actual batch size
         batch_size = imgs.size(0)
 
         # Move data to device
@@ -103,7 +197,6 @@ def train_tinynet(model, data_loader=None, optimizer=None, dev="cuda"):
         optimizer.zero_grad()
         pred, output_sr = model(imgs)
 
-        # Initialize batch losses
         batch_obj_loss = 0
         batch_cls_loss = 0
         batch_box_loss = 0
@@ -112,51 +205,48 @@ def train_tinynet(model, data_loader=None, optimizer=None, dev="cuda"):
             batch, _, h, w = item.shape
             box_pred, obj_pred, cls_pred = reshape_output(item)
 
-            # Pass the actual batch size to build_targets
             obj_target, cls_target, box_target = build_targets(
                 targets=targets, H=h, W=w, batch_size=batch_size
             )
 
-            # Move targets to device
             obj_target = obj_target.to(dev, non_blocking=True)
             cls_target = cls_target.to(dev, non_blocking=True)
             box_target = box_target.to(dev, non_blocking=True)
 
-            # Calculate losses
             batch_obj_loss += obj_loss(obj_pred, obj_target)
             batch_cls_loss += cls_loss(cls_pred, cls_target, obj_target)
             batch_box_loss += box_loss(box_pred, box_target, h, w, stride)
 
-        sr_loss += 0.1*torch.nn.L1Loss(reduction='mean')(output_sr, image)
+        sr_loss += 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
 
-        # Combine losses and backpropagate
         total_batch_loss = batch_obj_loss + batch_cls_loss + batch_box_loss + sr_loss
         total_batch_loss.backward()
         optimizer.step()
 
-        # Accumulate detached losses for logging
         total_ls += total_batch_loss.detach().item()
         obj_ls += batch_obj_loss.detach().item()
         cls_ls += batch_cls_loss.detach().item()
         box_ls += batch_box_loss.detach().item()
         sr_ls += sr_loss.detach().item()
 
-        # Clear intermediate variables
         del pred, output_sr, box_pred, obj_pred, cls_pred
         torch.cuda.empty_cache()
+
+    # Convert totals to averages
+    total_ls /= num_batches
+    obj_ls /= num_batches
+    cls_ls /= num_batches
+    box_ls /= num_batches
+    sr_ls /= num_batches
+
     return total_ls, obj_ls, cls_ls, box_ls, sr_ls
-
-
-import torch
-import torch.nn.functional as F
-from tqdm import tqdm
-
 
 def validation_tinynet(model, device: str = "cuda", data_loader=None):
     model.eval()
     down_factor = 2
 
     # Initialize accumulators
+    totla_loss = 0.0
     total_obj_loss = 0.0
     total_cls_loss = 0.0
     total_box_loss = 0.0
@@ -200,8 +290,10 @@ def validation_tinynet(model, device: str = "cuda", data_loader=None):
                 batch_box_loss_val += box_loss(box_pred, box_target, h, w, stride)
 
             sr_loss_val = 0.1 * torch.nn.L1Loss(reduction='mean')(output_sr, image)
+            total_batch_loss = batch_obj_loss_val + batch_cls_loss_val + batch_box_loss_val + sr_loss_val
 
             # Accumulate losses
+            totla_loss += total_batch_loss.item()
             total_obj_loss += batch_obj_loss_val.item()
             total_cls_loss += batch_cls_loss_val.item()
             total_box_loss += batch_box_loss_val.item()
@@ -209,12 +301,13 @@ def validation_tinynet(model, device: str = "cuda", data_loader=None):
             num_batches += 1
 
     # Compute average losses
+    avg_totla_loss = totla_loss / num_batches
     avg_obj_loss = total_obj_loss / num_batches
     avg_cls_loss = total_cls_loss / num_batches
     avg_box_loss = total_box_loss / num_batches
     avg_sr_loss = total_sr_loss / num_batches
 
-    return avg_obj_loss, avg_cls_loss, avg_box_loss, avg_sr_loss
+    return avg_totla_loss, avg_obj_loss, avg_cls_loss, avg_box_loss, avg_sr_loss
 
 
 
